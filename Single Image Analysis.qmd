@@ -1,0 +1,229 @@
+---
+title: "Colony Radial Growth Image Analysis"
+author: "Gabriel de Moraes Chitolina"
+date: today
+format:
+  html:
+    code-fold: false
+    code-tools: true
+    page-layout: full
+    
+editor_options: 
+  chunk_output_type: console
+---
+
+[GitHub Repository](https://github.com/gabrielmchitolina/fungal-colony-analysis)
+
+```{r setup, warning=FALSE, message=FALSE}
+library(EBImage)
+```
+
+# Introduction
+
+This document demonstrates an automated workflow for analyzing fungal colony images from Petri plates. The project is designed for fungicide resistance assays, where reliable colony size measurement is required to replace manual ruler-based approaches.
+
+The workflow includes:
+
+[**Normalization and gamma correction**]{style="color:blue"} → improve contrast
+
+[**Channel selection & grayscale conversion**]{style="color:darkgreen"} → maximize separation between colonies and agar
+
+[**Thresholding and morphological cleaning**]{style="color:darkorange"} → isolate colonies
+
+[**Calibration with a known label**]{style="color:purple"} → convert from pixels to cm²
+
+### **⚠️ Important notes:**
+
+-   This version processes one Petri plate at a time.
+
+-   Colonies with strong pigmentation or plates with multicolored media may require additional preprocessing (future work).
+
+-   Some steps (gamma, channel, threshold) may need manual tuning depending on colony and agar colors.
+
+-   Label image does not reflect a 4cm^2^ square. The image is used to show how the code analyze label images and use them to calculate the colony area.
+
+-   The model needs to be validated to check if results are reliable.
+
+# Parameters
+
+We define the paths to the input colony image, output folder, and the reference label image. The reference label has a known area (4 cm²), which is used to scale colony area from pixels → cm².
+
+```{r message=FALSE, warning=FALSE}
+image_path <- "C:/Users/gde267.AD/Downloads/Adobe2.jpeg"
+overlay_folder <- "C:/Users/gde267.AD/Downloads/single_image_overlay/"
+label_image_path <- "C:/Users/gde267.AD/Downloads/label.png"
+label_known_area_cm2 <- 4  
+
+if(!dir.exists(overlay_folder)) dir.create(overlay_folder)
+```
+
+# Colony Image Processing
+
+## Load and Resize
+
+We load the colony image and resize it to standard width (800 px) to ensure consistent processing.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+my_image <- readImage(image_path)
+img_resized <- resize(my_image, w = 800)
+display(img_resized, method="raster")
+```
+
+## Normalize + Gamma
+
+Normalization standardizes pixel intensity, while **gamma correction** adjusts the balance between bright and dark regions.
+
+-   If colonies are **dark on light agar**, try gamma values \< 1 (e.g., 0.7–0.9). This brightens the background and enhances dark colonies.
+
+-   If colonies are **light on dark agar**, try gamma values \> 1 (e.g., 1.2–1.5). This darkens the background and improves colony contrast.
+
+-   If agar has **strong pigmentation (e.g., red or purple media)**, gamma alone may not help, and channel extraction (next step) is more important.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+img_norm <- normalize(img_resized)
+img_gamma <- img_norm ^ 1.5  
+display(img_gamma, method="raster")
+```
+
+## Convert to Grayscale
+
+Grayscale emphasizes contrast between colony and agar. Depending on pigment:
+
+-   [**Red/orange colonies**]{style="color:red"} → "red" channel
+
+-   [**Green/blue colonies**]{style="color:green"} → "green" or "blue" channel
+
+-   [**Colored agar**]{style="color:orange"}→ pick channel with best contrast
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+img_gray <- channel(img_gamma, "gray")
+display(img_gray, method="raster")
+```
+
+## Threshold & Binary Mask
+
+We apply Otsu’s adaptive thresholding to separate colony pixels from background.
+
+-   If colonies are faint and risk being missed, reduce the threshold (\*0.9) for more sensitivity.
+
+-   If background noise is being detected as colonies, increase the threshold (\*1.1) for stricter detection.
+
+The algorithm automatically decides whether to use \< or \> depending on whether colonies are darker or lighter than agar.
+
+Morphological cleaning (erosion + dilation) removes specks of noise and smooths colony edges.
+
+-   Use smaller brushes (3–5 px) for light cleaning.
+
+-   Use larger brushes (7–10 px) for stronger smoothing.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+thr <- otsu(img_gray)
+mask_lt <- img_gray < thr
+mask_gt <- img_gray > thr
+img_bin <- if(mean(mask_lt) < mean(mask_gt)) mask_lt else mask_gt
+img_bin <- fillHull(img_bin)
+
+img_bin <- erode(img_bin, makeBrush(5, shape="Gaussian"))
+img_bin <- dilate(img_bin, makeBrush(7, shape="Gaussian"))
+display(img_bin, method="raster")
+```
+
+## Colony Detection
+
+We detect all connected objects, assume the largest object = colony, and highlight it in red.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+img_label <- bwlabel(img_bin)
+display(colorLabels(img_label), method="raster")
+
+colony_features <- computeFeatures.shape(img_label)
+largest <- which.max(colony_features[,"s.area"])
+colony_area_pix <- colony_features[largest, "s.area"]
+
+largest_mask <- img_label == largest
+overlay <- paintObjects(largest_mask, toRGB(img_gray), col="red")
+display(overlay, method="raster")
+
+cat("Colony area in pixels:", colony_area_pix, "\n")
+```
+
+# Label Calibration
+
+## Load and Process Label
+
+We load the reference label (known area = 4 cm²). This allows us to compute a pixel → cm² conversion factor.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+label_img <- readImage(label_image_path)
+label_img <- resize(label_img, w = 800)
+label_img <- normalize(label_img)
+label_img <- label_img ^ 1
+label_gray <- channel(label_img, "gray")
+display(label_gray, method="raster")
+```
+
+## Threshold & Extract Label
+
+As with the colony, we threshold and clean the label, then measure its area in pixels.This gives us the scaling factor:
+
+#### $$
+\text{Scaling Factor} = 
+\frac{\text{Label area (cm}^2\text{)}}{\text{Label area (pixels)}}
+$$
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+thr <- otsu(label_gray)
+mask_lt <- label_gray < thr
+mask_gt <- label_gray > thr
+label_bin <- if(mean(mask_lt) < mean(mask_gt)) mask_lt else mask_gt
+label_bin <- fillHull(label_bin)
+
+label_bin <- erode(label_bin, makeBrush(5, shape="disc"))
+label_bin <- dilate(label_bin, makeBrush(5, shape="disc"))
+display(label_bin, method="raster")
+
+label_label <- bwlabel(label_bin)
+label_features <- computeFeatures.shape(label_label)
+
+largest_label <- which.max(label_features[,"s.area"])
+label_area_pix <- label_features[largest_label, "s.area"]
+
+pixel_to_cm2 <- label_known_area_cm2 / label_area_pix
+cat("Reference label area in pixels:", label_area_pix, "\n")
+cat("Pixels → cm² factor:", pixel_to_cm2, "\n")
+```
+
+# Colony Area in cm²
+
+The colony area (in pixels) is converted to **cm²** using the calibration factor. This ensures measurements are not affected by image resolution or camera distance, as long as the reference label is present.
+
+#### $$
+\text{Colony Area (cm}^2\text{)} = 
+\text{Colony Area (pixels)} \times \text{Scaling Factor}
+$$
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+colony_area_cm2 <- colony_area_pix * pixel_to_cm2
+cat("Colony area in cm²:", colony_area_cm2, "\n")
+```
+
+# Save Overlay
+
+An overlay image with the detected colony highlighted in red is saved for record keeping and verification.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+overlay_filename <- file.path(overlay_folder,
+                             paste0(tools::file_path_sans_ext(basename(image_path)), "_overlay.png"))
+writeImage(overlay, overlay_filename)
+cat("Overlay image saved to:", overlay_filename, "\n")
+```
+
+# Conclusion
+
+This pipeline enables reproducible, automated measurement of fungal colony growth from Petri plate images.
+
+-   Calibration with a reference label ensures accurate conversion from pixels to cm².
+
+-   Gamma, grayscale channel choice, and threshold sensitivity can be adjusted depending on colony color, agar pigmentation, and background conditions.
+
+-   This version processes one plate at a time. Future improvements will expand functionality for multi-colored colonies and media, and eventually batch processing of multiple images.
