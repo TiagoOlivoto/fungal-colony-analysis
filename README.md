@@ -32,7 +32,6 @@ This repository contains an automated workflow for analyzing fungal colony image
 ## Getting Started
 
 ### 1. Install R packages
-
 ```r
 install.packages("BiocManager")
 BiocManager::install("EBImage")
@@ -40,39 +39,23 @@ BiocManager::install("EBImage")
 
 ### 2. Open the workflow
 Single Image Analysis.R or Single Image Analysis.qmd contains all steps for analyzing one Petri dish image.
-
 Update the file paths at the top of the script for your input image and label.
 
 ### 3. Run the workflow
-
-For R script: Source the script in RStudio.
-
-For Quarto: Knit the .qmd file to HTML to see results and overlay images.
-
-Overlay images are saved to the folder specified in the script (single_image_overlay/).
+- For R script: Source the script in RStudio.
+- For Quarto: Knit the .qmd file to HTML to see results and overlay images.
+- Overlay images are saved to the folder specified in the script (single_image_overlay/).
 
 ### How the workflow works
-
-Load and resize the Petri dish image.
-
-Normalize and apply gamma correction to enhance colony contrast.
-
-Convert to grayscale and threshold to create a binary mask of colonies.
-
-Morphological cleaning to remove noise and refine colony edges.
-
-Label connected components and identify the largest colony.
-
-Calibrate colony area using a reference label to convert pixels → cm².
-
-Save overlay image showing the largest colony in red.
+- Load and resize the Petri dish image.
+- Normalize and apply gamma correction to enhance colony contrast.
+- Convert to grayscale and threshold to create a binary mask of colonies.
+- Morphological cleaning to remove noise and refine colony edges.
+- Label connected components and identify the largest colony.
+- Calibrate colony area using a reference label to convert pixels → cm².
+- Save overlay image showing the largest colony in red.
 
 ### Notes
-
-Current version handles one Petri dish at a time.
-
-Calibration requires a reference label image with known area (label.png).
-
-Future updates aim to support multicolored media and multiple colonies per plate.
-BiocManager::install("EBImage")
-
+- Current version handles one Petri dish at a time.
+- Calibration requires a reference label image with known area (label.png).
+- Future updates aim to support multicolored media and multiple colonies per plate.
