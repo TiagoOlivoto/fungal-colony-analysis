@@ -1,0 +1,62 @@
+---
+title: "Pipeline using pliman"
+format: html
+---
+
+# package
+Install the latest version of pliman from CRAN (3.1.1)
+
+```{r}
+library(pliman)
+set_wd_here() # directory to the current file location
+
+```
+
+
+# If you know the image DPI
+```{r eval=FALSE}
+img <- image_import("without_ref.jpeg")
+
+# resize to 50% original size.. you probaly do not need such a great resolution to only get measures
+img <- image_import("without_ref.jpeg", resize = 50) 
+# you can get the dpi with dpi() draw a line in the petri dish's diameter and declare the known diameter (is that a 9-cm diameter?)
+# 505  DPI
+
+dpi(img) 
+image_index(img, index = "GRAY")
+
+res <- 
+  analyze_objects(img, 
+                  watershed = FALSE,
+                  index = "GRAY",
+                  invert = TRUE,
+                  erode = 30,
+                  dilate = 40)
+
+meas_cor <- get_measures(res, dpi = 500)
+
+# plot area (cm2)
+plot_measures(meas_cor, measure = "area", col = "red", size = 3)
+```
+
+# Using a reference object
+```{r}
+
+img2 <- image_import("with_ref.jpg")
+
+res2 <- 
+analyze_objects(img2,
+                reference = TRUE,
+                reference_area = 1, # Assuming that the square has 1cm2
+                reference_img = "reference", # get image from the folder
+                background = "background",
+                watershed = FALSE,
+                # erode = 30,
+                filter = 20,
+                dilate = 20, # this can be used to dilate mask and rescue fungi pixels eliminated from the edge in the masking step
+                foreground = "fungi")
+
+med_cor2 <- get_measures(res2)
+plot_measures(meas_cor, measure = "area", col = "red", size = 3)
+```
+
